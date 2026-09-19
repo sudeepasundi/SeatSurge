@@ -23,5 +23,23 @@ services:
     labels:
       org.springframework.boot.ignore: true
 
+  # Full stack in containers:  docker compose --profile app up --build
+  # (Not started by `./mvnw spring-boot:run`, which only needs the infrastructure above.)
+  app:
+    profiles: ["app"]
+    build: .
+    depends_on: [postgres, redis, mailpit]
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/seatsurge
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_MAIL_HOST: mailpit
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+    labels:
+      org.springframework.boot.ignore: true
+
 volumes:
   pgdata:
