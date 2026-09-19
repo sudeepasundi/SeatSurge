@@ -58,6 +58,10 @@ seatsurge:
     success-url: http://localhost:8080/checkout/success?session_id={CHECKOUT_SESSION_ID}
     cancel-url: http://localhost:8080/checkout/cancel
     checkout-ttl: 30m
+  admin:
+    # Bootstrap admin, created at startup only if a password is set and no such user exists
+    email: ${ADMIN_EMAIL:admin@seatsurge.dev}
+    password: ${ADMIN_PASSWORD:}
   hold:
     ttl: 10m
     max-seats-per-hold: 6

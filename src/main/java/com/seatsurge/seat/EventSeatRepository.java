@@ -29,6 +29,8 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
 
     long countByEventId(Long eventId);
 
+    long countByEventIdAndStatus(Long eventId, SeatStatus status);
+
     @Query("select es from EventSeat es where es.event.id = :eventId and es.id in :ids")
     List<EventSeat> findForEvent(@Param("eventId") Long eventId, @Param("ids") Collection<Long> ids);
 

@@ -15,6 +15,8 @@ public interface HoldRepository extends JpaRepository<Hold, Long> {
 
     List<Hold> findByUserIdAndStatusOrderByExpiresAt(Long userId, HoldStatus status);
 
+    List<Hold> findByEventIdAndStatus(Long eventId, HoldStatus status);
+
     /** Seats this fan already bought for the event (counts toward the per-user ticket limit). */
     @Query("""
             select count(es) from EventSeat es, Hold h

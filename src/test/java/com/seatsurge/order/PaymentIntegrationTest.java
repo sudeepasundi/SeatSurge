@@ -9,15 +9,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Arrays;
-import java.util.HexFormat;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -273,28 +269,4 @@ class PaymentIntegrationTest extends IntegrationTest {
         return jdbc.queryForObject("select count(*) from tickets where order_id = ?", Long.class, orderId);
     }
 
-    private ResultActions webhook(String payload) throws Exception {
-        return mockMvc.perform(post("/api/v1/webhooks/stripe").contentType(MediaType.APPLICATION_JSON).content(payload)
-                .header("Stripe-Signature", sign(payload, WEBHOOK_SECRET, Instant.now())));
-    }
-
-    /** A minimal Stripe event envelope around a Checkout Session object. */
-    private static String stripeEvent(String type, long orderId, String paymentStatus, String paymentIntent) {
-        return """
-                {"id":"evt_%s","object":"event","type":"%s","data":{"object":{
-                  "id":"cs_test_order_%d","object":"checkout.session","payment_status":"%s",
-                  "payment_intent":%s,"client_reference_id":"%d","metadata":{"order_id":"%d"}}}}"""
-                .formatted(UUID.randomUUID(), type, orderId, paymentStatus,
-                        paymentIntent == null ? "null" : "\"" + paymentIntent + "\"", orderId, orderId);
-    }
-
-    /** Stripe's scheme: header "t=<unix>,v1=<hex HMAC-SHA256(secret, t + "." + payload)>". */
-    private static String sign(String payload, String secret, Instant at) throws Exception {
-        long timestamp = at.getEpochSecond();
-        Mac mac = Mac.getInstance("HmacSHA256");
-        mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-        String signature = HexFormat.of().formatHex(
-                mac.doFinal((timestamp + "." + payload).getBytes(StandardCharsets.UTF_8)));
-        return "t=" + timestamp + ",v1=" + signature;
-    }
 }

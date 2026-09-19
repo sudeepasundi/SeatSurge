@@ -120,6 +120,29 @@ public class HoldService {
     }
 
     /**
+     * Releases every active hold of an event (used when the event is cancelled). Joins the caller's
+     * transaction; Redis locks are released after it commits. A checkout still open for one of these holds
+     * will find the hold gone when its payment arrives and be refunded automatically.
+     *
+     * @return number of holds released
+     */
+    public int releaseAllForEvent(Long eventId) {
+        return tx.execute(status -> {
+            int released = 0;
+            for (Hold hold : holdRepository.findByEventIdAndStatus(eventId, HoldStatus.ACTIVE)) {
+                String lockToken = hold.getLockToken();
+                if (holdRepository.transitionFromActive(hold.getId(), HoldStatus.RELEASED, clock.instant()) == 1) {
+                    List<Long> seatIds = eventSeatRepository.findIdsByHoldId(hold.getId());
+                    eventSeatRepository.releaseHeldSeats(hold.getId());
+                    seatLocks.unlockAllAfterCommit(seatIds, lockToken);
+                    released++;
+                }
+            }
+            return released;
+        });
+    }
+
+    /**
      * Expires due holds one by one, each in its own short transaction. The conditional update makes this
      * safe to run on several instances at once: only one of them wins each hold.
      *

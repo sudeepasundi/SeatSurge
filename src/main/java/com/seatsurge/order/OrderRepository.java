@@ -18,6 +18,11 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     @EntityGraph(attributePaths = "event")
     Page<Order> findByUserId(Long userId, Pageable pageable);
 
+    long countByEventIdAndStatus(Long eventId, OrderStatus status);
+
+    @Query("select coalesce(sum(o.amountCents), 0) from Order o where o.event.id = :eventId and o.status = :status")
+    long sumAmountByEventIdAndStatus(@Param("eventId") Long eventId, @Param("status") OrderStatus status);
+
     /** Compare-and-set on the order status; 0 means another webhook/worker already moved it. */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update Order o set o.status = :to, o.updatedAt = :now where o.id = :id and o.status = :from")

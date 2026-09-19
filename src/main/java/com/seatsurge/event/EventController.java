@@ -113,9 +113,16 @@ public class EventController {
         return eventService.publish(eventId, user);
     }
 
+    @GetMapping("/{eventId}/stats")
+    @PreAuthorize(ORGANIZER)
+    @Operation(summary = "Sales dashboard: seats by status, paid orders, revenue, check-ins")
+    public EventStats stats(@AuthenticationPrincipal AuthUser user, @PathVariable Long eventId) {
+        return eventService.stats(eventId, user);
+    }
+
     @PostMapping("/{eventId}/cancel")
     @PreAuthorize(ORGANIZER)
-    @Operation(summary = "Cancel an event")
+    @Operation(summary = "Cancel an event: releases holds, refunds every paid order, voids all tickets")
     public EventDetailResponse cancel(@AuthenticationPrincipal AuthUser user, @PathVariable Long eventId) {
         return eventService.cancel(eventId, user);
     }

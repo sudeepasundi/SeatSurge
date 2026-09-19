@@ -30,6 +30,7 @@ import com.seatsurge.hold.SeatLockService;
 import com.seatsurge.order.dto.OrderDtos.CheckoutResponse;
 import com.seatsurge.order.dto.OrderDtos.OrderDetail;
 import com.seatsurge.order.dto.OrderDtos.OrderSummary;
+import com.seatsurge.payment.PaidOrderRef;
 import com.seatsurge.payment.Payment;
 import com.seatsurge.payment.PaymentGateway;
 import com.seatsurge.payment.PaymentGateway.CheckoutSession;
@@ -241,6 +242,27 @@ public class OrderService {
             eventSeatRepository.releaseHeldSeats(holdId);
             seatLocks.unlockAllAfterCommit(seatIds, lockToken);
         }
+    }
+
+    /**
+     * Event cancelled by the organizer: every paid order moves to REFUND_PENDING with a refund queued in the
+     * outbox, and all tickets are voided, in the caller's transaction.
+     *
+     * @return number of orders queued for refund
+     */
+    @Transactional
+    public int refundAllPaidOrders(Long eventId) {
+        int queued = 0;
+        for (PaidOrderRef paid : paymentRepository.findPaidOrders(eventId)) {
+            if (orderRepository.transition(paid.orderId(), OrderStatus.PAID, OrderStatus.REFUND_PENDING,
+                    clock.instant()) == 1) {
+                outbox.enqueue("order", paid.orderId(), REFUND_REQUESTED, Map.of("orderId", paid.orderId(),
+                        "paymentIntentId", paid.paymentIntentId(), "reason", "EVENT_CANCELLED"));
+                queued++;
+            }
+        }
+        ticketRepository.cancelAllForEvent(eventId);
+        return queued;
     }
 
     /** Called by the refund outbox handler once Stripe accepted the refund. */

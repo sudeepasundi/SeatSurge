@@ -5,7 +5,11 @@ import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "seatsurge")
-public record SeatSurgeProperties(Jwt jwt, Stripe stripe, Hold hold, Outbox outbox) {
+public record SeatSurgeProperties(Jwt jwt, Stripe stripe, Hold hold, Outbox outbox, Admin admin) {
+
+    /** Credentials of the bootstrap admin; nothing is created while the password is blank. */
+    public record Admin(String email, String password) {
+    }
 
     public record Jwt(String secret, Duration accessTokenTtl, Duration refreshTokenTtl) {
     }

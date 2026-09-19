@@ -28,6 +28,10 @@ Java 25 · Spring Boot 4.1 · Spring Security + JWT · Spring Data JPA · Postgr
 | Seat holds (fan) | `POST /api/v1/events/{id}/holds`, `GET /api/v1/holds`, `GET/DELETE /api/v1/holds/{id}` |
 | Orders & checkout (fan) | `POST /api/v1/holds/{id}/checkout` (Idempotency-Key), `GET /api/v1/orders`, `GET /api/v1/orders/{id}` |
 | Webhooks | `POST /api/v1/webhooks/stripe` (Stripe-Signature) |
+| Tickets (fan) | `GET /api/v1/me/tickets`, `GET /api/v1/tickets/{id}`, `GET /api/v1/tickets/{id}/qr` (PNG), `POST /api/v1/tickets/{id}/transfer` |
+| Gate | `POST /api/v1/gate/check-in` (GATE_STAFF, event organizer, ADMIN) |
+| Organizer stats | `GET /api/v1/events/{id}/stats` |
+| Admin | `POST/GET /api/v1/admin/users`, `PUT /api/v1/admin/users/{id}/status` |
 
 ## How overselling is prevented
 1. **Redis fast path**: each requested seat is locked with `SET NX PX` (TTL = hold duration). Contended requests are rejected in about 1 ms without opening a DB transaction. Locks are released with a compare-and-delete Lua script so a request never frees a lock it does not own.
@@ -48,6 +52,11 @@ hold (10 min) --checkout--> order PENDING + Stripe session (hold extended to cov
 - **Idempotency**: `Idempotency-Key` on checkout replays the stored response. Orders are unique per hold, and Stripe calls carry their own idempotency keys, so retries never double-charge.
 - **Webhooks**: HMAC signature and timestamp are verified, and events are deduplicated on the Stripe event id in the same transaction as the state change.
 - **Transactional outbox**: side effects (emails, refunds) are written in the same transaction as the business change, then delivered at least once by a poller. The poller claims rows with `FOR UPDATE SKIP LOCKED` leases and retries with exponential backoff, so it is safe on multiple instances.
+
+## Tickets at the gate
+- **Check-in is a single conditional `UPDATE ... WHERE code = ? AND checked_in_at IS NULL`**, so two scanners can never both admit the same ticket. This is verified by 50 concurrent scans producing exactly 1 ADMITTED and 49 ALREADY_CHECKED_IN. Rejections explain why: already used (with time), wrong event, cancelled.
+- **Transfers rotate the ticket code**, so a screenshot of the old QR code stops working the moment a ticket changes hands.
+- **Cancelling an event** is one transaction: active holds released, every paid order queued for refund in the outbox, all tickets voided.
 
 ### Trying it with real Stripe (test mode)
 ```bash
@@ -79,6 +88,7 @@ Run the tests (Testcontainers spins up Postgres and Redis):
 | `JWT_SECRET` | Base64 256-bit signing key (a dev default is provided) |
 | `STRIPE_SECRET_KEY` | Stripe test secret key (`sk_test_...`) |
 | `STRIPE_WEBHOOK_SECRET` | Signing secret from `stripe listen` (`whsec_...`) |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Bootstrap admin created at startup (only if the password is set) |
 
 ## Build phases
 - [x] 1. Skeleton: Docker Compose, Flyway schema, error handling (RFC 7807), Swagger, request tracing
@@ -86,6 +96,6 @@ Run the tests (Testcontainers spins up Postgres and Redis):
 - [x] 3. Catalog: venues, sections with bulk seat generation, draft -> published -> cancelled events, price tiers, public search, live seat map
 - [x] 4. Seat holds: Redis SET NX fast path + JPA optimistic locking, one active hold per fan (partial unique index), per-fan ticket limit, expiry sweeper, 200-thread race tests
 - [x] 5. Payments: Stripe Checkout (created outside DB transactions), Idempotency-Key replay, signature-verified + deduplicated webhooks, automatic refund of late payments, lease-based transactional outbox (emails, refunds)
-- [ ] 6. Tickets: QR codes, gate check-in, transfer, refunds
+- [x] 6. Tickets: QR codes, atomic gate check-in (50-scanner race test), transfer with code rotation, event cancellation with bulk refunds, sales stats, admin user management
 - [ ] 7. Waiting room: admission tokens, rate limiting
 - [ ] 8. Polish: CI, k6 load test, benchmarks

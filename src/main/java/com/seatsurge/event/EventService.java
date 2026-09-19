@@ -12,6 +12,8 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -31,9 +33,14 @@ import com.seatsurge.event.dto.EventDtos.SeatMapSection;
 import com.seatsurge.event.dto.EventDtos.SeatRow;
 import com.seatsurge.event.dto.EventDtos.SeatView;
 import com.seatsurge.event.dto.EventDtos.TierResponse;
+import com.seatsurge.hold.HoldService;
+import com.seatsurge.order.OrderRepository;
+import com.seatsurge.order.OrderService;
+import com.seatsurge.order.OrderStatus;
 import com.seatsurge.seat.EventSeatRepository;
 import com.seatsurge.seat.SeatMapRow;
 import com.seatsurge.seat.SeatStatus;
+import com.seatsurge.ticket.TicketRepository;
 import com.seatsurge.user.UserRepository;
 import com.seatsurge.venue.Section;
 import com.seatsurge.venue.SectionRepository;
@@ -47,6 +54,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class EventService {
 
+    private static final Logger log = LoggerFactory.getLogger(EventService.class);
+
     private static final int DEFAULT_MAX_TICKETS_PER_USER = 6;
     private static final String DEFAULT_CURRENCY = "usd";
 
@@ -56,6 +65,10 @@ public class EventService {
     private final VenueRepository venueRepository;
     private final SectionRepository sectionRepository;
     private final UserRepository userRepository;
+    private final HoldService holdService;
+    private final OrderService orderService;
+    private final OrderRepository orderRepository;
+    private final TicketRepository ticketRepository;
     private final Clock clock;
 
     // ---------- organizer ----------
@@ -102,6 +115,10 @@ public class EventService {
         return toDetail(event);
     }
 
+    /**
+     * Cancels the event in one transaction: status CANCELLED, active holds released, every paid order
+     * queued for refund through the outbox and all tickets voided. Either all of it happens or none.
+     */
     @Transactional
     public EventDetailResponse cancel(Long eventId, AuthUser user) {
         Event event = loadManaged(eventId, user);
@@ -109,8 +126,27 @@ public class EventService {
             throw new ConflictException("INVALID_EVENT_STATUS", "Event is already cancelled");
         }
         event.setStatus(EventStatus.CANCELLED);
-        // Refunds for sold tickets are triggered here in the payments phase.
-        return toDetail(event);
+        int holds = holdService.releaseAllForEvent(eventId);
+        int refunds = orderService.refundAllPaidOrders(eventId);
+        log.info("Event {} cancelled: {} hold(s) released, {} order(s) queued for refund", eventId, holds, refunds);
+        // Bulk updates above cleared the persistence context, so reload before rendering.
+        return toDetail(eventRepository.findById(eventId).orElseThrow());
+    }
+
+    @Transactional(readOnly = true)
+    public EventStats stats(Long eventId, AuthUser user) {
+        Event event = loadManaged(eventId, user);
+        String currency = priceTierRepository.findByEventIdOrderByPriceCentsDesc(eventId).stream()
+                .map(PriceTier::getCurrency).findFirst().orElse(null);
+        return new EventStats(eventId, event.getStatus(),
+                eventSeatRepository.countByEventId(eventId),
+                eventSeatRepository.countByEventIdAndStatus(eventId, SeatStatus.AVAILABLE),
+                eventSeatRepository.countByEventIdAndStatus(eventId, SeatStatus.HELD),
+                eventSeatRepository.countByEventIdAndStatus(eventId, SeatStatus.SOLD),
+                orderRepository.countByEventIdAndStatus(eventId, OrderStatus.PAID),
+                orderRepository.sumAmountByEventIdAndStatus(eventId, OrderStatus.PAID),
+                currency,
+                ticketRepository.countCheckedIn(eventId));
     }
 
     @Transactional(readOnly = true)

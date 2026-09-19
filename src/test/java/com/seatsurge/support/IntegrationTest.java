@@ -27,6 +27,8 @@ import com.seatsurge.TestcontainersConfiguration;
 /** Base for full-stack tests: real Postgres + Redis via Testcontainers, shared Spring context. */
 @SpringBootTest(properties = {
         "seatsurge.stripe.webhook-secret=" + IntegrationTest.WEBHOOK_SECRET,
+        "seatsurge.admin.email=" + IntegrationTest.ADMIN_EMAIL,
+        "seatsurge.admin.password=" + IntegrationTest.ADMIN_PASSWORD,
         // Background jobs are driven explicitly by tests for deterministic assertions
         "seatsurge.outbox.poll-interval=1h",
         "seatsurge.hold.sweep-interval=1h"
@@ -36,6 +38,8 @@ import com.seatsurge.TestcontainersConfiguration;
 public abstract class IntegrationTest {
 
     public static final String WEBHOOK_SECRET = "whsec_test_seatsurge";
+    public static final String ADMIN_EMAIL = "admin@seatsurge.test";
+    public static final String ADMIN_PASSWORD = "admin-pass-123";
 
     @Autowired
     protected MockMvc mockMvc;
@@ -82,6 +86,74 @@ public abstract class IntegrationTest {
                 "$.sections[0].rows[0].seats[*].id");
         return new TestEvent(eventId, seatIds.stream().map(Number::longValue).toList());
     }
+
+    // ---------- users ----------
+
+    protected String login(String email, String password) throws Exception {
+        String body = mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"%s\",\"password\":\"%s\"}".formatted(email, password)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.read(body, "$.accessToken");
+    }
+
+    protected String adminToken() throws Exception {
+        return login(ADMIN_EMAIL, ADMIN_PASSWORD);
+    }
+
+    /** Roles that cannot self-register (GATE_STAFF, ADMIN) are created through the admin API. */
+    protected String tokenForStaff(String role) throws Exception {
+        String email = role.toLowerCase() + "-" + UUID.randomUUID() + "@example.com";
+        postAs(adminToken(), "/api/v1/admin/users", """
+                {"email":"%s","password":"staff-pass-123","fullName":"Staff","role":"%s"}"""
+                .formatted(email, role)).andExpect(status().isCreated());
+        return login(email, "staff-pass-123");
+    }
+
+    // ---------- purchasing ----------
+
+    /** Full purchase: hold -> checkout -> signed "paid" webhook. Returns the order id. */
+    protected long purchase(String fanToken, long eventId, Long... seatIds) throws Exception {
+        String ids = java.util.Arrays.stream(seatIds).map(String::valueOf)
+                .collect(java.util.stream.Collectors.joining(","));
+        long holdId = ((Number) read(postAs(fanToken, "/api/v1/events/{id}/holds", "{\"seatIds\":[" + ids + "]}", eventId)
+                .andExpect(status().isCreated()), "$.id")).longValue();
+        long orderId = ((Number) read(mockMvc.perform(post("/api/v1/holds/{id}/checkout", holdId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + fanToken)
+                        .header("Idempotency-Key", UUID.randomUUID().toString()))
+                .andExpect(status().isCreated()), "$.orderId")).longValue();
+        webhook(stripeEvent("checkout.session.completed", orderId, "paid", "pi_" + orderId))
+                .andExpect(status().isOk());
+        return orderId;
+    }
+
+    protected ResultActions webhook(String payload) throws Exception {
+        return mockMvc.perform(post("/api/v1/webhooks/stripe").contentType(MediaType.APPLICATION_JSON).content(payload)
+                .header("Stripe-Signature", sign(payload, WEBHOOK_SECRET, Instant.now())));
+    }
+
+    /** A minimal Stripe event envelope around a Checkout Session object. */
+    protected static String stripeEvent(String type, long orderId, String paymentStatus, String paymentIntent) {
+        return """
+                {"id":"evt_%s","object":"event","type":"%s","data":{"object":{
+                  "id":"cs_test_order_%d","object":"checkout.session","payment_status":"%s",
+                  "payment_intent":%s,"client_reference_id":"%d","metadata":{"order_id":"%d"}}}}"""
+                .formatted(UUID.randomUUID(), type, orderId, paymentStatus,
+                        paymentIntent == null ? "null" : "\"" + paymentIntent + "\"", orderId, orderId);
+    }
+
+    /** Stripe's scheme: header "t=<unix>,v1=<hex HMAC-SHA256(secret, t + "." + payload)>". */
+    protected static String sign(String payload, String secret, Instant at) throws Exception {
+        long timestamp = at.getEpochSecond();
+        javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+        mac.init(new javax.crypto.spec.SecretKeySpec(secret.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                "HmacSHA256"));
+        String signature = java.util.HexFormat.of().formatHex(
+                mac.doFinal((timestamp + "." + payload).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        return "t=" + timestamp + ",v1=" + signature;
+    }
+
+    // ---------- HTTP helpers ----------
 
     protected ResultActions getAs(String token, String url, Object... vars) throws Exception {
         return mockMvc.perform(withAuth(get(url, vars), token));
