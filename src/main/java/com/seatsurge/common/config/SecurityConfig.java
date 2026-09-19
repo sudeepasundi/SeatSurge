@@ -26,6 +26,7 @@ public class SecurityConfig {
             "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**",
             "/actuator/health", "/actuator/info",
             "/api/v1/auth/**",
+            "/api/v1/webhooks/**", // authenticated by the Stripe signature, not a JWT
             "/error"
     };
 

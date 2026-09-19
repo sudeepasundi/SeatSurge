@@ -26,6 +26,8 @@ Java 25 · Spring Boot 4.1 · Spring Security + JWT · Spring Data JPA · Postgr
 | Events (organizer) | `POST /api/v1/events`, `PUT/DELETE /api/v1/events/{id}`, `POST /api/v1/events/{id}/{publish,cancel}`, `GET /api/v1/events/mine` |
 | Events (public) | `GET /api/v1/events?q=&city=&category=&from=&to=`, `GET /api/v1/events/{id}`, `GET /api/v1/events/{id}/seats` |
 | Seat holds (fan) | `POST /api/v1/events/{id}/holds`, `GET /api/v1/holds`, `GET/DELETE /api/v1/holds/{id}` |
+| Orders & checkout (fan) | `POST /api/v1/holds/{id}/checkout` (Idempotency-Key), `GET /api/v1/orders`, `GET /api/v1/orders/{id}` |
+| Webhooks | `POST /api/v1/webhooks/stripe` (Stripe-Signature) |
 
 ## How overselling is prevented
 1. **Redis fast path**: each requested seat is locked with `SET NX PX` (TTL = hold duration). Contended requests are rejected in about 1 ms without opening a DB transaction. Locks are released with a compare-and-delete Lua script so a request never frees a lock it does not own.
@@ -35,6 +37,24 @@ Java 25 · Spring Boot 4.1 · Spring Security + JWT · Spring Data JPA · Postgr
 5. **Degrades gracefully**: if Redis is down, holds still work in Postgres-only mode.
 
 **Verified by tests**: 200 fans on virtual threads race for 10 seats and exactly 10 win. With overlapping 3-seat requests, no seat is ever double-held and no partial hold is left behind. Both scenarios pass with and without Redis. Removing `@Version` makes the Postgres-only run oversell (13 winners for 10 seats), which shows the test catches the bug it guards against.
+
+## Payment flow
+```
+hold (10 min) --checkout--> order PENDING + Stripe session (hold extended to cover the 30-min session)
+   webhook checkout.session.completed --> hold CONVERTED, seats SOLD, tickets issued, ORDER_PAID -> outbox -> email
+   webhook checkout.session.expired   --> order CANCELLED, seats back on sale
+   paid, but hold already lost        --> order REFUND_PENDING -> outbox -> Stripe refund -> REFUNDED
+```
+- **Idempotency**: `Idempotency-Key` on checkout replays the stored response. Orders are unique per hold, and Stripe calls carry their own idempotency keys, so retries never double-charge.
+- **Webhooks**: HMAC signature and timestamp are verified, and events are deduplicated on the Stripe event id in the same transaction as the state change.
+- **Transactional outbox**: side effects (emails, refunds) are written in the same transaction as the business change, then delivered at least once by a poller. The poller claims rows with `FOR UPDATE SKIP LOCKED` leases and retries with exponential backoff, so it is safe on multiple instances.
+
+### Trying it with real Stripe (test mode)
+```bash
+stripe listen --forward-to localhost:8080/api/v1/webhooks/stripe   # prints whsec_...
+STRIPE_SECRET_KEY=sk_test_... STRIPE_WEBHOOK_SECRET=whsec_... ./mvnw spring-boot:run
+```
+Open the `checkoutUrl` from the checkout response and pay with card `4242 4242 4242 4242`. The ticket email appears in Mailpit (http://localhost:8025).
 
 ## Running locally
 Prerequisites: JDK 25 and Docker.
@@ -65,7 +85,7 @@ Run the tests (Testcontainers spins up Postgres and Redis):
 - [x] 2. Auth: JWT access/refresh tokens with rotation + reuse detection, roles (FAN, ORGANIZER, GATE_STAFF, ADMIN), virtual threads
 - [x] 3. Catalog: venues, sections with bulk seat generation, draft -> published -> cancelled events, price tiers, public search, live seat map
 - [x] 4. Seat holds: Redis SET NX fast path + JPA optimistic locking, one active hold per fan (partial unique index), per-fan ticket limit, expiry sweeper, 200-thread race tests
-- [ ] 5. Payments: Stripe Checkout, idempotency, webhooks, outbox
+- [x] 5. Payments: Stripe Checkout (created outside DB transactions), Idempotency-Key replay, signature-verified + deduplicated webhooks, automatic refund of late payments, lease-based transactional outbox (emails, refunds)
 - [ ] 6. Tickets: QR codes, gate check-in, transfer, refunds
 - [ ] 7. Waiting room: admission tokens, rate limiting
 - [ ] 8. Polish: CI, k6 load test, benchmarks

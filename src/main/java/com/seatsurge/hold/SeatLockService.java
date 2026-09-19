@@ -12,6 +12,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.seatsurge.common.config.SeatSurgeProperties;
 
@@ -66,6 +68,24 @@ public class SeatLockService {
             unlockAll(acquired, token);
             return true;
         }
+    }
+
+    /**
+     * Releases the locks once the surrounding transaction commits (immediately if there is none), so a
+     * rolled-back seat release never unlocks seats that are in fact still held.
+     */
+    public void unlockAllAfterCommit(Collection<Long> eventSeatIds, String token) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            unlockAll(eventSeatIds, token);
+            return;
+        }
+        List<Long> ids = List.copyOf(eventSeatIds);
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                unlockAll(ids, token);
+            }
+        });
     }
 
     public void unlockAll(Collection<Long> eventSeatIds, String token) {

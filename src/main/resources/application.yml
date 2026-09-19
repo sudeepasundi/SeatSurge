@@ -24,6 +24,9 @@ spring:
     redis:
       host: localhost
       port: 6379
+  mail:
+    host: localhost
+    port: 1025
   docker:
     compose:
       lifecycle-management: start-only
@@ -54,11 +57,17 @@ seatsurge:
     webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
     success-url: http://localhost:8080/checkout/success?session_id={CHECKOUT_SESSION_ID}
     cancel-url: http://localhost:8080/checkout/cancel
+    checkout-ttl: 30m
   hold:
     ttl: 10m
     max-seats-per-hold: 6
     sweep-interval: 15s
     redis-fast-path: true
+  outbox:
+    poll-interval: 2s
+    batch-size: 20
+    max-attempts: 10
+    lease: 5m
 
 logging:
   pattern:

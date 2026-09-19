@@ -86,7 +86,7 @@ class HoldIntegrationTest extends IntegrationTest {
         long seat = event.seatIds().get(0);
 
         long holdId = ((Number) read(hold(alice, seat).andExpect(status().isCreated()), "$.id")).longValue();
-        jdbc.update("update holds set expires_at = now() - interval '1 second' where id = ?", holdId);
+        jdbc.update("update holds set expires_at = now() - interval '1 hour' where id = ?", holdId);
 
         assertThat(holdService.expireDueHolds()).isGreaterThanOrEqualTo(1);
         getAs(alice, "/api/v1/holds/{id}", holdId).andExpect(jsonPath("$.status").value("EXPIRED"));

@@ -50,6 +50,13 @@ public class Hold extends BaseEntity {
         this.lockToken = lockToken;
     }
 
+    /** Checkout extends the hold so it outlives the payment session (never shortens it). */
+    public void extendTo(Instant newExpiry) {
+        if (newExpiry.isAfter(expiresAt)) {
+            expiresAt = newExpiry;
+        }
+    }
+
     public Long userId() {
         return user.getId();
     }

@@ -25,10 +25,17 @@ import com.jayway.jsonpath.JsonPath;
 import com.seatsurge.TestcontainersConfiguration;
 
 /** Base for full-stack tests: real Postgres + Redis via Testcontainers, shared Spring context. */
-@SpringBootTest
+@SpringBootTest(properties = {
+        "seatsurge.stripe.webhook-secret=" + IntegrationTest.WEBHOOK_SECRET,
+        // Background jobs are driven explicitly by tests for deterministic assertions
+        "seatsurge.outbox.poll-interval=1h",
+        "seatsurge.hold.sweep-interval=1h"
+})
 @AutoConfigureMockMvc
-@Import(TestcontainersConfiguration.class)
+@Import({TestcontainersConfiguration.class, TestStubsConfiguration.class})
 public abstract class IntegrationTest {
+
+    public static final String WEBHOOK_SECRET = "whsec_test_seatsurge";
 
     @Autowired
     protected MockMvc mockMvc;

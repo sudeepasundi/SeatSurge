@@ -32,6 +32,17 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
     @Query("select es from EventSeat es where es.event.id = :eventId and es.id in :ids")
     List<EventSeat> findForEvent(@Param("eventId") Long eventId, @Param("ids") Collection<Long> ids);
 
+    List<EventSeat> findByHoldId(Long holdId);
+
+    /** HELD -> SOLD for a paid hold. Returns the number of seats sold; bumps version like every bulk write. */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update EventSeat es
+            set es.status = com.seatsurge.seat.SeatStatus.SOLD, es.version = es.version + 1
+            where es.holdId = :holdId and es.status = com.seatsurge.seat.SeatStatus.HELD
+            """)
+    int markHeldSeatsSold(@Param("holdId") Long holdId);
+
     @Query("select es.id from EventSeat es where es.holdId = :holdId")
     List<Long> findIdsByHoldId(@Param("holdId") Long holdId);
 
