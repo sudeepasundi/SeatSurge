@@ -1,0 +1,57 @@
+spring:
+  application:
+    name: seatsurge
+  datasource:
+    url: jdbc:postgresql://localhost:5432/seatsurge
+    username: seatsurge
+    password: seatsurge
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc.time_zone: UTC
+  flyway:
+    enabled: true
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  docker:
+    compose:
+      lifecycle-management: start-only
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+
+seatsurge:
+  jwt:
+    # Base64-encoded 256-bit key. Override with JWT_SECRET outside local dev.
+    secret: ${JWT_SECRET:c2VhdHN1cmdlLWRldi1zZWNyZXQta2V5LWNoYW5nZS1tZS0yNTYtYml0cw==}
+    access-token-ttl: 15m
+    refresh-token-ttl: 7d
+  stripe:
+    secret-key: ${STRIPE_SECRET_KEY:}
+    webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+    success-url: http://localhost:8080/checkout/success?session_id={CHECKOUT_SESSION_ID}
+    cancel-url: http://localhost:8080/checkout/cancel
+  hold:
+    ttl: 10m
+    max-seats-per-hold: 6
+
+logging:
+  pattern:
+    level: "%5p [%X{requestId:-}]"
