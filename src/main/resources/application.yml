@@ -18,6 +18,9 @@ spring:
   flyway:
     enabled: true
   data:
+    web:
+      pageable:
+        max-page-size: 100
     redis:
       host: localhost
       port: 6379

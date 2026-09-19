@@ -18,6 +18,14 @@ Ticket drops for big concerts are a classic high-contention problem: many users 
 ## Tech stack
 Java 25 · Spring Boot 4.1 · Spring Security + JWT · Spring Data JPA · PostgreSQL 17 · Flyway · Redis · Stripe · springdoc-openapi (Swagger) · Testcontainers · Docker Compose · k6
 
+## API overview (so far)
+| Area | Endpoints |
+|---|---|
+| Auth | `POST /api/v1/auth/{register,login,refresh,logout}`, `GET /api/v1/users/me` |
+| Venues (organizer) | `POST/GET /api/v1/venues`, `GET/PUT /api/v1/venues/{id}`, `POST /api/v1/venues/{id}/sections`, `DELETE /api/v1/venues/{id}/sections/{sectionId}` |
+| Events (organizer) | `POST /api/v1/events`, `PUT/DELETE /api/v1/events/{id}`, `POST /api/v1/events/{id}/{publish,cancel}`, `GET /api/v1/events/mine` |
+| Events (public) | `GET /api/v1/events?q=&city=&category=&from=&to=`, `GET /api/v1/events/{id}`, `GET /api/v1/events/{id}/seats` |
+
 ## Running locally
 Prerequisites: JDK 25 and Docker.
 
@@ -45,7 +53,7 @@ Run the tests (Testcontainers spins up Postgres and Redis):
 ## Build phases
 - [x] 1. Skeleton: Docker Compose, Flyway schema, error handling (RFC 7807), Swagger, request tracing
 - [x] 2. Auth: JWT access/refresh tokens with rotation + reuse detection, roles (FAN, ORGANIZER, GATE_STAFF, ADMIN), virtual threads
-- [ ] 3. Catalog: venues, sections, seats, events, price tiers, public search
+- [x] 3. Catalog: venues, sections with bulk seat generation, draft -> published -> cancelled events, price tiers, public search, live seat map
 - [ ] 4. Seat holds: Redis lock + optimistic locking, expiry sweeper, concurrency test
 - [ ] 5. Payments: Stripe Checkout, idempotency, webhooks, outbox
 - [ ] 6. Tickets: QR codes, gate check-in, transfer, refunds

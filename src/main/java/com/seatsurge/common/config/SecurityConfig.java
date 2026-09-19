@@ -29,6 +29,10 @@ public class SecurityConfig {
             "/error"
     };
 
+    static final String[] PUBLIC_GET_PATHS = {
+            "/api/v1/events", "/api/v1/events/*", "/api/v1/events/*/seats"
+    };
+
     /**
      * Security errors (401/403) raised in the filter chain are handed to the MVC exception resolver,
      * so they are rendered by GlobalExceptionHandler in the same ProblemDetail format as every other error.
@@ -44,6 +48,9 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_PATHS).permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        // "mine" must be matched before the public "/events/*" pattern below
+                        .requestMatchers(HttpMethod.GET, "/api/v1/events/mine").authenticated()
+                        .requestMatchers(HttpMethod.GET, PUBLIC_GET_PATHS).permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((req, res, e) -> resolver.resolveException(req, res, null, e))

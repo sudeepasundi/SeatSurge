@@ -5,6 +5,7 @@ import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -39,6 +40,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     ProblemDetail handleOptimisticLock(OptimisticLockingFailureException ex) {
         return problem(HttpStatus.CONFLICT, "CONCURRENT_MODIFICATION",
                 "The resource was modified concurrently, please retry");
+    }
+
+    /** A unique/foreign-key constraint caught a race that the service-level checks could not. */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    ProblemDetail handleDataIntegrity(DataIntegrityViolationException ex) {
+        log.warn("Data integrity violation: {}", ex.getMostSpecificCause().getMessage());
+        return problem(HttpStatus.CONFLICT, "DATA_CONFLICT", "The request conflicts with existing data");
     }
 
     @ExceptionHandler(AccessDeniedException.class)
