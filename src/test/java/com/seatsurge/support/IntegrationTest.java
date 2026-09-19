@@ -6,6 +6,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,6 +43,37 @@ public abstract class IntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return JsonPath.read(body, "$.accessToken");
+    }
+
+    public record TestEvent(long eventId, List<Long> seatIds) {
+    }
+
+    /**
+     * Creates a venue with one section (row A, {@code seats} seats, $50 each) and a published event.
+     * The sale is open now if {@code onSaleNow}, otherwise it opens tomorrow.
+     */
+    protected TestEvent createPublishedEvent(String organizerToken, int seats, int maxTicketsPerUser,
+            boolean onSaleNow) throws Exception {
+        long venueId = ((Number) read(postAs(organizerToken, "/api/v1/venues", """
+                {"name":"Arena","address":"1 Main St","city":"City-%s"}""".formatted(UUID.randomUUID()))
+                .andExpect(status().isCreated()), "$.id")).longValue();
+        List<Number> sectionIds = read(postAs(organizerToken, "/api/v1/venues/{id}/sections", """
+                {"name":"Main","rows":[{"label":"A","seatCount":%d}]}""".formatted(seats), venueId)
+                .andExpect(status().isCreated()), "$.sections[*].id");
+
+        Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        Instant saleStartsAt = onSaleNow ? now.minus(1, ChronoUnit.HOURS) : now.plus(1, ChronoUnit.DAYS);
+        long eventId = ((Number) read(postAs(organizerToken, "/api/v1/events", """
+                {"venueId":%d,"title":"Flash Sale Night","artist":"Rush","startsAt":"%s","saleStartsAt":"%s",
+                 "maxTicketsPerUser":%d,"priceTiers":[{"name":"GA","priceCents":5000,"sectionIds":[%d]}]}"""
+                .formatted(venueId, now.plus(30, ChronoUnit.DAYS), saleStartsAt, maxTicketsPerUser,
+                        sectionIds.getFirst().longValue()))
+                .andExpect(status().isCreated()), "$.id")).longValue();
+        postAs(organizerToken, "/api/v1/events/{id}/publish", null, eventId).andExpect(status().isOk());
+
+        List<Number> seatIds = read(getAs(organizerToken, "/api/v1/events/{id}/seats", eventId),
+                "$.sections[0].rows[0].seats[*].id");
+        return new TestEvent(eventId, seatIds.stream().map(Number::longValue).toList());
     }
 
     protected ResultActions getAs(String token, String url, Object... vars) throws Exception {

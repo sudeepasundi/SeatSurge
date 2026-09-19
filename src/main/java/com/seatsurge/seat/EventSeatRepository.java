@@ -29,6 +29,36 @@ public interface EventSeatRepository extends JpaRepository<EventSeat, Long> {
 
     long countByEventId(Long eventId);
 
+    @Query("select es from EventSeat es where es.event.id = :eventId and es.id in :ids")
+    List<EventSeat> findForEvent(@Param("eventId") Long eventId, @Param("ids") Collection<Long> ids);
+
+    @Query("select es.id from EventSeat es where es.holdId = :holdId")
+    List<Long> findIdsByHoldId(@Param("holdId") Long holdId);
+
+    /**
+     * Puts a hold's seats back on sale. Bumps {@code version} because a bulk update bypasses Hibernate's
+     * optimistic-locking bookkeeping, and a concurrent reader must still see its stale version rejected.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update EventSeat es
+            set es.status = com.seatsurge.seat.SeatStatus.AVAILABLE, es.holdId = null, es.version = es.version + 1
+            where es.holdId = :holdId and es.status = com.seatsurge.seat.SeatStatus.HELD
+            """)
+    int releaseHeldSeats(@Param("holdId") Long holdId);
+
+    @Query("""
+            select new com.seatsurge.hold.HeldSeatView(es.id, s.name, vs.rowLabel, vs.seatNumber, pt.priceCents,
+                pt.currency)
+            from EventSeat es
+                join es.venueSeat vs
+                join vs.section s
+                join es.priceTier pt
+            where es.holdId = :holdId
+            order by s.name, vs.rowLabel, vs.seatNumber
+            """)
+    List<com.seatsurge.hold.HeldSeatView> findHeldSeatViews(@Param("holdId") Long holdId);
+
     @Query("""
             select new com.seatsurge.event.TierAvailability(
                 es.priceTier.id,

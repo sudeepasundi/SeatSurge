@@ -13,6 +13,12 @@ public record SeatSurgeProperties(Jwt jwt, Stripe stripe, Hold hold) {
     public record Stripe(String secretKey, String webhookSecret, String successUrl, String cancelUrl) {
     }
 
-    public record Hold(Duration ttl, int maxSeatsPerHold) {
+    /**
+     * @param ttl             how long seats stay reserved while the fan checks out
+     * @param maxSeatsPerHold upper bound on seats in a single hold request
+     * @param sweepInterval   how often expired holds are released
+     * @param redisFastPath   use Redis seat locks to reject contended requests before touching Postgres
+     */
+    public record Hold(Duration ttl, int maxSeatsPerHold, Duration sweepInterval, boolean redisFastPath) {
     }
 }

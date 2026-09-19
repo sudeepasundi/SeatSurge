@@ -57,6 +57,8 @@ seatsurge:
   hold:
     ttl: 10m
     max-seats-per-hold: 6
+    sweep-interval: 15s
+    redis-fast-path: true
 
 logging:
   pattern:
