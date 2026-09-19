@@ -35,6 +35,10 @@ public final class EventDtos {
             @NotNull @Future Instant startsAt,
             @NotNull Instant saleStartsAt,
             @Min(1) @Max(10) Integer maxTicketsPerUser,
+            @Schema(description = "Queue fans in a virtual waiting room before they can hold seats (default false)")
+            Boolean waitingRoomEnabled,
+            @Schema(description = "Fans admitted per minute once the sale opens (default 600)")
+            @Min(1) @Max(100_000) Integer admissionRatePerMinute,
             @Schema(description = "ISO-4217 lowercase, defaults to usd") @Pattern(regexp = "[a-z]{3}") String currency,
             @NotEmpty @Size(max = 20) List<@Valid PriceTierRequest> priceTiers) {
     }
@@ -51,6 +55,7 @@ public final class EventDtos {
 
     public record EventDetailResponse(Long id, String title, String artist, String description, String category,
             Instant startsAt, Instant saleStartsAt, EventStatus status, SalePhase salePhase, int maxTicketsPerUser,
+            boolean waitingRoomEnabled, int admissionRatePerMinute,
             Long organizerId, VenueResponse venue, long totalSeats, long availableSeats,
             List<TierResponse> priceTiers) {
     }

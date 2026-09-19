@@ -47,6 +47,7 @@ import com.seatsurge.venue.SectionRepository;
 import com.seatsurge.venue.Venue;
 import com.seatsurge.venue.VenueRepository;
 import com.seatsurge.venue.dto.VenueDtos.VenueResponse;
+import com.seatsurge.waitingroom.WaitingRoomService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -69,6 +70,7 @@ public class EventService {
     private final OrderService orderService;
     private final OrderRepository orderRepository;
     private final TicketRepository ticketRepository;
+    private final WaitingRoomService waitingRoomService;
     private final Clock clock;
 
     // ---------- organizer ----------
@@ -136,6 +138,7 @@ public class EventService {
     @Transactional(readOnly = true)
     public EventStats stats(Long eventId, AuthUser user) {
         Event event = loadManaged(eventId, user);
+        var queue = waitingRoomService.snapshot(event);
         String currency = priceTierRepository.findByEventIdOrderByPriceCentsDesc(eventId).stream()
                 .map(PriceTier::getCurrency).findFirst().orElse(null);
         return new EventStats(eventId, event.getStatus(),
@@ -146,7 +149,8 @@ public class EventService {
                 orderRepository.countByEventIdAndStatus(eventId, OrderStatus.PAID),
                 orderRepository.sumAmountByEventIdAndStatus(eventId, OrderStatus.PAID),
                 currency,
-                ticketRepository.countCheckedIn(eventId));
+                ticketRepository.countCheckedIn(eventId),
+                queue.joined(), queue.admitted());
     }
 
     @Transactional(readOnly = true)
@@ -214,6 +218,10 @@ public class EventService {
         event.setSaleStartsAt(request.saleStartsAt());
         event.setMaxTicketsPerUser(request.maxTicketsPerUser() == null
                 ? DEFAULT_MAX_TICKETS_PER_USER : request.maxTicketsPerUser());
+        event.setWaitingRoomEnabled(Boolean.TRUE.equals(request.waitingRoomEnabled()));
+        if (request.admissionRatePerMinute() != null) {
+            event.setAdmissionRatePerMinute(request.admissionRatePerMinute());
+        }
     }
 
     private void createPricingAndSeats(Event event, EventRequest request) {
@@ -281,7 +289,8 @@ public class EventService {
 
         return new EventDetailResponse(event.getId(), event.getTitle(), event.getArtist(), event.getDescription(),
                 event.getCategory(), event.getStartsAt(), event.getSaleStartsAt(), event.getStatus(),
-                event.salePhase(clock.instant()), event.getMaxTicketsPerUser(), event.organizerId(),
+                event.salePhase(clock.instant()), event.getMaxTicketsPerUser(),
+                event.isWaitingRoomEnabled(), event.getAdmissionRatePerMinute(), event.organizerId(),
                 VenueResponse.from(event.getVenue()), total, available, tiers);
     }
 

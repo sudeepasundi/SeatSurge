@@ -108,7 +108,7 @@ class HoldConcurrencyTest extends IntegrationTest {
                 futures.add(pool.submit(() -> {
                     startGun.await();
                     try {
-                        HoldResponse hold = holdService.createHold(event.eventId(), fans.get(fan), seatsForFan.apply(fan));
+                        HoldResponse hold = holdService.createHold(event.eventId(), fans.get(fan), seatsForFan.apply(fan), null);
                         result.winners.put(fan, hold);
                     } catch (ApiException e) {
                         if ("SEATS_UNAVAILABLE".equals(e.getCode())) {

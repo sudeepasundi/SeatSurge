@@ -25,6 +25,7 @@ Java 25 · Spring Boot 4.1 · Spring Security + JWT · Spring Data JPA · Postgr
 | Venues (organizer) | `POST/GET /api/v1/venues`, `GET/PUT /api/v1/venues/{id}`, `POST /api/v1/venues/{id}/sections`, `DELETE /api/v1/venues/{id}/sections/{sectionId}` |
 | Events (organizer) | `POST /api/v1/events`, `PUT/DELETE /api/v1/events/{id}`, `POST /api/v1/events/{id}/{publish,cancel}`, `GET /api/v1/events/mine` |
 | Events (public) | `GET /api/v1/events?q=&city=&category=&from=&to=`, `GET /api/v1/events/{id}`, `GET /api/v1/events/{id}/seats` |
+| Waiting room (fan) | `POST/GET/DELETE /api/v1/events/{id}/queue` |
 | Seat holds (fan) | `POST /api/v1/events/{id}/holds`, `GET /api/v1/holds`, `GET/DELETE /api/v1/holds/{id}` |
 | Orders & checkout (fan) | `POST /api/v1/holds/{id}/checkout` (Idempotency-Key), `GET /api/v1/orders`, `GET /api/v1/orders/{id}` |
 | Webhooks | `POST /api/v1/webhooks/stripe` (Stripe-Signature) |
@@ -41,6 +42,13 @@ Java 25 · Spring Boot 4.1 · Spring Security + JWT · Spring Data JPA · Postgr
 5. **Degrades gracefully**: if Redis is down, holds still work in Postgres-only mode.
 
 **Verified by tests**: 200 fans on virtual threads race for 10 seats and exactly 10 win. With overlapping 3-seat requests, no seat is ever double-held and no partial hold is left behind. Both scenarios pass with and without Redis. Removing `@Version` makes the Postgres-only run oversell (13 winners for 10 seats), which shows the test catches the bug it guards against.
+
+## Virtual waiting room
+For high-demand drops (`waitingRoomEnabled: true`), fans queue before they can hold seats:
+- **Queue number**: joining is an atomic, idempotent Lua script (`HGET` or `INCR`+`HSET`). 100 concurrent joins get exactly the numbers 1..100, and retries keep their place.
+- **Admission is computed, not stored**: `allowance(now) = rate + rate x minutes since sale start`, and a fan is admitted when `number <= allowance`. There is no background gatekeeper and no shared state beyond the counter, so every instance agrees.
+- **Admission token**: admitted fans get a short-lived JWT bound to *their* user id and *that* event (`typ=admission`, which the auth filter rejects as a login token and vice versa). Seat holds verify it without touching Redis.
+- **Rate limiting**: a sliding-window log (Redis sorted set plus Lua) limits holds, queue joins and login attempts per account. It returns `429` with `Retry-After`, has no burst at window boundaries, and fails open if Redis is down.
 
 ## Payment flow
 ```
@@ -97,5 +105,5 @@ Run the tests (Testcontainers spins up Postgres and Redis):
 - [x] 4. Seat holds: Redis SET NX fast path + JPA optimistic locking, one active hold per fan (partial unique index), per-fan ticket limit, expiry sweeper, 200-thread race tests
 - [x] 5. Payments: Stripe Checkout (created outside DB transactions), Idempotency-Key replay, signature-verified + deduplicated webhooks, automatic refund of late payments, lease-based transactional outbox (emails, refunds)
 - [x] 6. Tickets: QR codes, atomic gate check-in (50-scanner race test), transfer with code rotation, event cancellation with bulk refunds, sales stats, admin user management
-- [ ] 7. Waiting room: admission tokens, rate limiting
+- [x] 7. Waiting room: atomic Redis queue numbers, time-based admission (no gatekeeper job), signed per-fan per-event admission tokens, sliding-window rate limits on holds, logins and queue joins
 - [ ] 8. Polish: CI, k6 load test, benchmarks

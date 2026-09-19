@@ -65,6 +65,14 @@ public abstract class IntegrationTest {
      */
     protected TestEvent createPublishedEvent(String organizerToken, int seats, int maxTicketsPerUser,
             boolean onSaleNow) throws Exception {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        return createPublishedEvent(organizerToken, seats, maxTicketsPerUser,
+                onSaleNow ? now.minus(1, ChronoUnit.HOURS) : now.plus(1, ChronoUnit.DAYS), "");
+    }
+
+    /** Full control over the sale start, plus extra JSON fields for the event (e.g. waiting-room settings). */
+    protected TestEvent createPublishedEvent(String organizerToken, int seats, int maxTicketsPerUser,
+            Instant saleStartsAt, String extraJsonFields) throws Exception {
         long venueId = ((Number) read(postAs(organizerToken, "/api/v1/venues", """
                 {"name":"Arena","address":"1 Main St","city":"City-%s"}""".formatted(UUID.randomUUID()))
                 .andExpect(status().isCreated()), "$.id")).longValue();
@@ -73,12 +81,12 @@ public abstract class IntegrationTest {
                 .andExpect(status().isCreated()), "$.sections[*].id");
 
         Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
-        Instant saleStartsAt = onSaleNow ? now.minus(1, ChronoUnit.HOURS) : now.plus(1, ChronoUnit.DAYS);
+        String extra = extraJsonFields == null || extraJsonFields.isBlank() ? "" : "," + extraJsonFields;
         long eventId = ((Number) read(postAs(organizerToken, "/api/v1/events", """
                 {"venueId":%d,"title":"Flash Sale Night","artist":"Rush","startsAt":"%s","saleStartsAt":"%s",
-                 "maxTicketsPerUser":%d,"priceTiers":[{"name":"GA","priceCents":5000,"sectionIds":[%d]}]}"""
+                 "maxTicketsPerUser":%d,"priceTiers":[{"name":"GA","priceCents":5000,"sectionIds":[%d]}]%s}"""
                 .formatted(venueId, now.plus(30, ChronoUnit.DAYS), saleStartsAt, maxTicketsPerUser,
-                        sectionIds.getFirst().longValue()))
+                        sectionIds.getFirst().longValue(), extra))
                 .andExpect(status().isCreated()), "$.id")).longValue();
         postAs(organizerToken, "/api/v1/events/{id}/publish", null, eventId).andExpect(status().isOk());
 
@@ -97,8 +105,14 @@ public abstract class IntegrationTest {
         return JsonPath.read(body, "$.accessToken");
     }
 
+    private static String cachedAdminToken;
+
+    /** Cached: logins are rate limited per account, and the token outlives the whole test run. */
     protected String adminToken() throws Exception {
-        return login(ADMIN_EMAIL, ADMIN_PASSWORD);
+        if (cachedAdminToken == null) {
+            cachedAdminToken = login(ADMIN_EMAIL, ADMIN_PASSWORD);
+        }
+        return cachedAdminToken;
     }
 
     /** Roles that cannot self-register (GATE_STAFF, ADMIN) are created through the admin API. */

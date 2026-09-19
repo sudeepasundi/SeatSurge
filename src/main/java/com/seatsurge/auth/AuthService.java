@@ -22,6 +22,7 @@ import com.seatsurge.common.config.SeatSurgeProperties;
 import com.seatsurge.common.exception.ApiException;
 import com.seatsurge.common.exception.BadRequestException;
 import com.seatsurge.common.exception.ConflictException;
+import com.seatsurge.common.ratelimit.RateLimiter;
 import com.seatsurge.user.Role;
 import com.seatsurge.user.User;
 import com.seatsurge.user.UserRepository;
@@ -38,15 +39,20 @@ public class AuthService {
     private final JwtService jwtService;
     private final Duration refreshTokenTtl;
     private final Clock clock;
+    private final RateLimiter rateLimiter;
+    private final int loginsPerMinute;
 
     public AuthService(UserRepository userRepository, RefreshTokenRepository refreshTokenRepository,
-            PasswordEncoder passwordEncoder, JwtService jwtService, SeatSurgeProperties properties, Clock clock) {
+            PasswordEncoder passwordEncoder, JwtService jwtService, SeatSurgeProperties properties, Clock clock,
+            RateLimiter rateLimiter) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.refreshTokenTtl = properties.jwt().refreshTokenTtl();
         this.clock = clock;
+        this.rateLimiter = rateLimiter;
+        this.loginsPerMinute = properties.rateLimit().loginsPerMinute();
     }
 
     @Transactional
@@ -66,7 +72,10 @@ public class AuthService {
 
     @Transactional
     public AuthResponse login(LoginRequest request) {
-        User user = userRepository.findByEmail(normalizeEmail(request.email()))
+        String email = normalizeEmail(request.email());
+        // Per-account throttle against password guessing (counts every attempt, successful or not).
+        rateLimiter.check("login:" + email, loginsPerMinute, Duration.ofMinutes(1));
+        User user = userRepository.findByEmail(email)
                 .filter(u -> passwordEncoder.matches(request.password(), u.getPasswordHash()))
                 .filter(User::isEnabled)
                 .orElseThrow(() -> unauthorized("INVALID_CREDENTIALS", "Invalid email or password"));

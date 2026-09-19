@@ -21,6 +21,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import com.seatsurge.common.ratelimit.RateLimitedException;
+
 /**
  * Renders every error as an RFC 7807 ProblemDetail with a stable machine-readable "code".
  * Extends ResponseEntityExceptionHandler so standard Spring MVC errors (404, 405, 415, ...) keep
@@ -34,6 +36,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(ApiException.class)
     ProblemDetail handleApi(ApiException ex) {
         return problem(ex.getStatus(), ex.getCode(), ex.getMessage());
+    }
+
+    @ExceptionHandler(RateLimitedException.class)
+    ResponseEntity<ProblemDetail> handleRateLimited(RateLimitedException ex) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
+                .body(problem(HttpStatus.TOO_MANY_REQUESTS, ex.getCode(), ex.getMessage()));
     }
 
     @ExceptionHandler(OptimisticLockingFailureException.class)

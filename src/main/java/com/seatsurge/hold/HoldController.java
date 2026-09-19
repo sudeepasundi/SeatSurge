@@ -1,5 +1,6 @@
 package com.seatsurge.hold;
 
+import java.time.Duration;
 import java.util.List;
 
 import org.springframework.http.HttpStatus;
@@ -10,34 +11,50 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.seatsurge.auth.AuthUser;
+import com.seatsurge.common.config.SeatSurgeProperties;
+import com.seatsurge.common.ratelimit.RateLimiter;
 import com.seatsurge.hold.dto.HoldDtos.HoldRequest;
 import com.seatsurge.hold.dto.HoldDtos.HoldResponse;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
 
 @RestController
 @RequestMapping("/api/v1")
-@RequiredArgsConstructor
 @PreAuthorize("hasRole('FAN')")
 @Tag(name = "Seat holds", description = "Reserve seats for a limited time while checking out")
 public class HoldController {
 
+    public static final String ADMISSION_HEADER = "X-Admission-Token";
+
     private final HoldService holdService;
+    private final RateLimiter rateLimiter;
+    private final int holdsPerMinute;
+
+    public HoldController(HoldService holdService, RateLimiter rateLimiter, SeatSurgeProperties properties) {
+        this.holdService = holdService;
+        this.rateLimiter = rateLimiter;
+        this.holdsPerMinute = properties.rateLimit().holdsPerMinute();
+    }
 
     @PostMapping("/events/{eventId}/holds")
     @ResponseStatus(HttpStatus.CREATED)
-    @Operation(summary = "Hold seats (all-or-nothing). 409 SEATS_UNAVAILABLE if any seat is taken")
+    @Operation(summary = "Hold seats (all-or-nothing). 409 SEATS_UNAVAILABLE if any seat is taken; "
+            + "429 when rate limited; waiting-room events need X-Admission-Token")
     public HoldResponse create(@AuthenticationPrincipal AuthUser user, @PathVariable Long eventId,
-            @Valid @RequestBody HoldRequest request) {
-        return holdService.createHold(eventId, user, request.seatIds());
+            @Valid @RequestBody HoldRequest request,
+            @Parameter(description = "Admission token from the waiting room (only for waiting-room events)")
+            @RequestHeader(value = ADMISSION_HEADER, required = false) String admissionToken) {
+        rateLimiter.check("hold:" + user.id(), holdsPerMinute, Duration.ofMinutes(1));
+        return holdService.createHold(eventId, user, request.seatIds(), admissionToken);
     }
 
     @GetMapping("/holds")

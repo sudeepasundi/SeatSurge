@@ -17,9 +17,11 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.seatsurge.auth.AuthUser;
+import com.seatsurge.auth.JwtService;
 import com.seatsurge.common.config.SeatSurgeProperties;
 import com.seatsurge.common.exception.BadRequestException;
 import com.seatsurge.common.exception.ConflictException;
+import com.seatsurge.common.exception.ForbiddenException;
 import com.seatsurge.common.exception.NotFoundException;
 import com.seatsurge.event.Event;
 import com.seatsurge.event.EventRepository;
@@ -54,26 +56,28 @@ public class HoldService {
     private final EventRepository eventRepository;
     private final UserRepository userRepository;
     private final SeatLockService seatLocks;
+    private final JwtService jwtService;
     private final TransactionTemplate tx;
     private final Clock clock;
     private final Duration holdTtl;
     private final int maxSeatsPerHold;
 
     public HoldService(HoldRepository holdRepository, EventSeatRepository eventSeatRepository,
-            EventRepository eventRepository, UserRepository userRepository, SeatLockService seatLocks,
+            EventRepository eventRepository, UserRepository userRepository, SeatLockService seatLocks, JwtService jwtService,
             PlatformTransactionManager transactionManager, Clock clock, SeatSurgeProperties properties) {
         this.holdRepository = holdRepository;
         this.eventSeatRepository = eventSeatRepository;
         this.eventRepository = eventRepository;
         this.userRepository = userRepository;
         this.seatLocks = seatLocks;
+        this.jwtService = jwtService;
         this.tx = new TransactionTemplate(transactionManager);
         this.clock = clock;
         this.holdTtl = properties.hold().ttl();
         this.maxSeatsPerHold = properties.hold().maxSeatsPerHold();
     }
 
-    public HoldResponse createHold(Long eventId, AuthUser user, List<Long> requestedSeatIds) {
+    public HoldResponse createHold(Long eventId, AuthUser user, List<Long> requestedSeatIds, String admissionToken) {
         List<Long> seatIds = requestedSeatIds.stream().distinct().sorted().toList();
         if (seatIds.size() != requestedSeatIds.size()) {
             throw new BadRequestException("DUPLICATE_SEATS", "The same seat was requested more than once");
@@ -87,7 +91,7 @@ public class HoldService {
             throw seatsUnavailable();
         }
         try {
-            Long holdId = tx.execute(status -> reserve(eventId, user, seatIds, lockToken));
+            Long holdId = tx.execute(status -> reserve(eventId, user, seatIds, lockToken, admissionToken));
             return view(holdId);
         } catch (RuntimeException e) {
             seatLocks.unlockAll(seatIds, lockToken);
@@ -176,11 +180,15 @@ public class HoldService {
     // ---------- internals ----------
 
     /** Runs inside a transaction. Any conflict surfaces as an exception, and the caller releases the Redis locks. */
-    private Long reserve(Long eventId, AuthUser user, List<Long> seatIds, String lockToken) {
+    private Long reserve(Long eventId, AuthUser user, List<Long> seatIds, String lockToken, String admissionToken) {
         Instant now = clock.instant();
         Event event = eventRepository.findById(eventId).orElseThrow(() -> new NotFoundException("Event", eventId));
         if (event.salePhase(now) != SalePhase.ON_SALE) {
             throw new ConflictException("EVENT_NOT_ON_SALE", "Tickets for this event are not on sale");
+        }
+        if (event.isWaitingRoomEnabled() && !jwtService.isValidAdmission(admissionToken, user.id(), eventId)) {
+            throw new ForbiddenException("ADMISSION_REQUIRED",
+                    "This drop uses a waiting room: join the queue and send your admission token (X-Admission-Token)");
         }
         if (holdRepository.existsByUserIdAndEventIdAndStatus(user.id(), eventId, HoldStatus.ACTIVE)) {
             throw new ConflictException("ACTIVE_HOLD_EXISTS",

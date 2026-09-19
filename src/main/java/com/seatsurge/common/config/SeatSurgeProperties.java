@@ -5,7 +5,16 @@ import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "seatsurge")
-public record SeatSurgeProperties(Jwt jwt, Stripe stripe, Hold hold, Outbox outbox, Admin admin) {
+public record SeatSurgeProperties(Jwt jwt, Stripe stripe, Hold hold, Outbox outbox, Admin admin,
+        WaitingRoom waitingRoom, RateLimit rateLimit) {
+
+    /** @param admissionTokenTtl lifetime of the pass an admitted fan presents when holding seats */
+    public record WaitingRoom(Duration admissionTokenTtl) {
+    }
+
+    /** Sliding-window limits (requests per rolling minute). */
+    public record RateLimit(int holdsPerMinute, int loginsPerMinute, int queueJoinsPerMinute) {
+    }
 
     /** Credentials of the bootstrap admin; nothing is created while the password is blank. */
     public record Admin(String email, String password) {

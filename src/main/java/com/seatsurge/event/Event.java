@@ -57,6 +57,14 @@ public class Event extends BaseEntity {
     @Column(name = "max_tickets_per_user", nullable = false)
     private int maxTicketsPerUser;
 
+    /** High-demand drop: fans must pass the virtual waiting room before they can hold seats. */
+    @Column(name = "waiting_room_enabled", nullable = false)
+    private boolean waitingRoomEnabled;
+
+    /** How many queued fans are let in per minute once the sale opens. */
+    @Column(name = "admission_rate_per_minute", nullable = false)
+    private int admissionRatePerMinute = 600;
+
     public Event(User organizer) {
         this.organizer = organizer;
     }
