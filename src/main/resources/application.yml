@@ -1,6 +1,9 @@
 spring:
   application:
     name: seatsurge
+  threads:
+    virtual:
+      enabled: true
   datasource:
     url: jdbc:postgresql://localhost:5432/seatsurge
     username: seatsurge

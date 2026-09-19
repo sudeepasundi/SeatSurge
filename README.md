@@ -11,6 +11,8 @@ Ticket drops for big concerts are a classic high-contention problem: many users 
 - **Virtual waiting room**: a Redis-backed queue issues short-lived admission tokens.
 - **Idempotent Stripe checkout**: `Idempotency-Key` headers plus webhooks that are signature-verified and deduplicated.
 - **Transactional outbox**: reliable, at-least-once delivery of ticket issuance emails.
+- **Virtual threads (Java 25)**: each request runs on a cheap virtual thread, so it scales to heavy concurrency while the code stays plain blocking Spring MVC + JPA, with no reactive complexity.
+- **JWT auth with refresh-token rotation**: refresh tokens are single-use and stored only as hashes; replaying a used one revokes every token that user holds (reuse detection).
 - **QR e-tickets**: an atomic gate check-in prevents a ticket from being scanned twice.
 
 ## Tech stack
@@ -42,7 +44,7 @@ Run the tests (Testcontainers spins up Postgres and Redis):
 
 ## Build phases
 - [x] 1. Skeleton: Docker Compose, Flyway schema, error handling (RFC 7807), Swagger, request tracing
-- [ ] 2. Auth: JWT access/refresh tokens, roles (FAN, ORGANIZER, GATE_STAFF, ADMIN)
+- [x] 2. Auth: JWT access/refresh tokens with rotation + reuse detection, roles (FAN, ORGANIZER, GATE_STAFF, ADMIN), virtual threads
 - [ ] 3. Catalog: venues, sections, seats, events, price tiers, public search
 - [ ] 4. Seat holds: Redis lock + optimistic locking, expiry sweeper, concurrency test
 - [ ] 5. Payments: Stripe Checkout, idempotency, webhooks, outbox
